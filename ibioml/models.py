@@ -4,6 +4,25 @@ import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Usar GPU si está disponible, de lo contrario CPU
 
+# Seed global para reproducibilidad
+GLOBAL_SEED = 42
+
+def set_global_seed(seed=None):
+    """
+    Establece la semilla global para reproducibilidad.
+    
+    Args:
+        seed (int, optional): Semilla para los generadores aleatorios. Si es None, usa GLOBAL_SEED.
+    """
+    if seed is None:
+        seed = GLOBAL_SEED
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+# Establecer seed global al importar el módulo
+set_global_seed()
+
 
 #%%
 #------------------- Modelos de Aprendizaje Profundo -------------------#

@@ -96,7 +96,7 @@ class Tuner:
     
     def _run_outer_cv_loop(self, X, y, T, results, training_results_dir):
         """Ejecuta el bucle externo de validación cruzada."""
-        outer_cv = TrialKFold(n_splits=self.outer_folds, shuffle=True)
+        outer_cv = TrialKFold(n_splits=self.outer_folds, shuffle=True, random_state=42)
         
         for fold_idx, (train_val_idx, test_idx) in enumerate(outer_cv.split(trial_markers=T)):
             print(f"\n===== Outer Fold {fold_idx+1}/{self.outer_folds} =====")
@@ -111,9 +111,13 @@ class Tuner:
             os.makedirs(fold_dir, exist_ok=True)
             
             # Divide datos para validación interna
-            X_train, X_val, y_train, y_val = trial_train_test_split(
-                X_train_val, y_train_val, T_train_val, train_size=0.8
+            X_train, X_val, y_train, y_val, train_mask, val_mask = trial_train_test_split(
+                X_train_val, y_train_val, T_train_val, train_size=0.8, random_state=42, shuffle=True, return_mask=True
             )
+
+            train_trials = [int(t) for t in np.unique(T_train_val[train_mask])]
+            val_trials = [int(t) for t in np.unique(T_train_val[val_mask])]
+            test_trials = [int(t) for t in np.unique(T[test_idx])]
             
             # Optimiza para este fold
             best_model, final_config, study, scaler = self._optimize_fold(
@@ -125,7 +129,7 @@ class Tuner:
             
             # Evalúa modelo
             fold_results = self._evaluate_model(
-                best_model, scaler, X_test, y_test, X_val, y_val, study
+                best_model, scaler, X_test, y_test, X_val, y_val, study, train_trials, val_trials, test_trials
             )
             
             # Actualiza resultados
@@ -224,7 +228,7 @@ class Tuner:
         print(f"Best hyperparameters: {study.best_params}")
         print(f"Best Validation R² score: {study.best_value:.4f}")
     
-    def _evaluate_model(self, model, scaler, X_test, y_test, X_val, y_val, study):
+    def _evaluate_model(self, model, scaler, X_test, y_test, X_val, y_val, study, train_trials, val_trials, test_trials):
         """Evalúa un modelo en datos de prueba y validación usando el evaluador."""
         # Escala datos de prueba
         X_test_scaled = scaler.feature_scaler.transform(X_test)
@@ -262,6 +266,11 @@ class Tuner:
             fold_results["val_r2"] = val_r2_scores[0]
             if len(val_r2_scores) > 1:
                 fold_results["val_r2_scores"] = val_r2_scores[1:]
+            
+            # Añade información de los trials
+            fold_results["train_trials"] = train_trials
+            fold_results["val_trials"] = val_trials
+            fold_results["test_trials"] = test_trials
             
             # Añade información del estudio
             fold_results["study"] = {
