@@ -313,7 +313,7 @@ class Tuner:
         
         # Guardar en formato JSON
         with open(f"{experiment_dir}/final_results.json", "w") as f:
-            json.dump(json_results, f, default=str)
+            json.dump(json_results, f, indent=4, default=str)
     
     def _print_cv_summary(self, results):
         """Imprime un resumen de los resultados de validación cruzada usando el evaluador."""
