@@ -78,7 +78,7 @@ class MLPModel(BaseMLP):
         return self.output_layer(features)
 
 class DualOutputMLPModel(BaseMLP):
-    """Modelo MLP con dos cabezas de salida separadas."""
+    """Modelo MLP con dos cabezas de salida separadas, cada una con su capa exclusiva."""
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout):
         """
         Args:
@@ -89,7 +89,22 @@ class DualOutputMLPModel(BaseMLP):
             dropout (float): La probabilidad de dropout para regularización.
         """
         super(DualOutputMLPModel, self).__init__(input_size, hidden_size, num_layers, dropout)
-        # Crear dos cabezas de salida separadas
+        
+        # Crear capas exclusivas para cada output head
+        self.exclusive_head1 = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+        self.exclusive_head2 = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+        
+        # Capas de salida finales
         self.output_head1 = nn.Linear(hidden_size, output_size)
         self.output_head2 = nn.Linear(hidden_size, output_size)
 
@@ -103,8 +118,13 @@ class DualOutputMLPModel(BaseMLP):
         """
         x = x.to(device)
         features = self.shared_layers(x)
-        output1 = self.output_head1(features)
-        output2 = self.output_head2(features)
+        
+        # Procesar cada output head con su capa exclusiva
+        exclusive_features1 = self.exclusive_head1(features)
+        exclusive_features2 = self.exclusive_head2(features)
+        
+        output1 = self.output_head1(exclusive_features1)
+        output2 = self.output_head2(exclusive_features2)
         return output1, output2
 
 
@@ -183,7 +203,7 @@ class LSTMModel(BaseRNN):
 
 
 class DualOutputRNN(BaseRNN):
-    """Modelo RNN con dos cabezas de salida separadas."""
+    """Modelo RNN con dos cabezas de salida separadas, cada una con su capa exclusiva."""
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout, rnn_type):
         """
         Args:
@@ -195,7 +215,22 @@ class DualOutputRNN(BaseRNN):
             rnn_type (str): Tipo de RNN ('RNN', 'GRU', 'LSTM').
         """
         super(DualOutputRNN, self).__init__(input_size, hidden_size, output_size, num_layers, dropout, rnn_type)
-        # Crear dos cabezas de salida separadas
+        
+        # Crear capas exclusivas para cada output head
+        self.exclusive_head1 = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+        self.exclusive_head2 = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+        
+        # Capas de salida finales
         self.output_head1 = nn.Linear(hidden_size, output_size)
         self.output_head2 = nn.Linear(hidden_size, output_size)
 
@@ -221,9 +256,13 @@ class DualOutputRNN(BaseRNN):
         # Aplicar normalización por lotes
         out = self.batch_norm(out[:, -1, :])  # Usar el último paso de tiempo
 
+        # Procesar cada output head con su capa exclusiva
+        exclusive_features1 = self.exclusive_head1(out)
+        exclusive_features2 = self.exclusive_head2(out)
+        
         # Decodificar el estado oculto del último paso de tiempo en dos salidas
-        output1 = self.output_head1(out)
-        output2 = self.output_head2(out)
+        output1 = self.output_head1(exclusive_features1)
+        output2 = self.output_head2(exclusive_features2)
         return output1, output2
     
 
