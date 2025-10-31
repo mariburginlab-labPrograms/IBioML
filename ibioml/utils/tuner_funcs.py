@@ -6,6 +6,10 @@ def split_model_space(model_space):
     """
     Separa los hiperparámetros fijos de los optimizables (tuplas) en model_space.
     Devuelve (fixed_space, search_space)
+    
+    Soporta parámetros especiales para capas exclusivas:
+    - num_exclusive_layers: int o (int, low, high, [step]) - Si es 0, desactiva capas exclusivas
+    - exclusive_hidden_size: int o (int, low, high, [step]) - Tamaño de capas exclusivas
     """
     fixed_keys = {
         "model_class", "output_size", "device", "num_epochs",
@@ -34,6 +38,7 @@ def initialize_config(config, X_train, y_train, X_val, y_val, get_scaler=False):
     """
     Inicializa la configuración para el entrenamiento.
     Maneja automáticamente modelos de salida única y dual.
+    Soporta configuración de capas exclusivas vía num_exclusive_layers y exclusive_hidden_size.
     """
     # Detectar automáticamente la dimensión de salida
     if y_train.ndim > 1 and y_train.shape[1] == 2:
@@ -63,6 +68,20 @@ def initialize_config(config, X_train, y_train, X_val, y_val, get_scaler=False):
         train_config["output_size"] = 1  # Cada cabeza predice un valor
     else:
         train_config["y_scaler"] = scaler.target_scaler
+    
+    # Manejar parámetros de capas exclusivas (solo para modelos dual)
+    if y_dim == 2:
+        # Convertir num_exclusive_layers=0 a use_exclusive=False
+        if "num_exclusive_layers" in train_config:
+            if train_config["num_exclusive_layers"] == 0:
+                train_config["use_exclusive"] = False
+                # No pasar num_exclusive_layers ni exclusive_hidden_size si use_exclusive=False
+                train_config.pop("num_exclusive_layers", None)
+                train_config.pop("exclusive_hidden_size", None)
+            else:
+                train_config["use_exclusive"] = True
+                # num_exclusive_layers y exclusive_hidden_size se pasan tal cual
+        # Si no está especificado, usar el comportamiento por defecto (use_exclusive=True, 1 capa)
     
     if get_scaler:
         return train_config, scaler

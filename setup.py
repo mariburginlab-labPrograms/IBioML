@@ -26,7 +26,7 @@ extras_require["all"] = sum(extras_require.values(), [])
 
 setup(
     name="ibioml",
-    version="0.1.5",
+    version="0.1.6",
     packages=find_packages(),
     install_requires=[
         "numpy>=1.19.0",

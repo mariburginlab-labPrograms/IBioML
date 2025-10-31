@@ -47,7 +47,24 @@ class BaseTrainer:
 
     def initialize_model(self, config):
         """Inicializar el modelo, el criterio y el optimizador."""
-        self.model = config["model_class"](input_size=config["input_size"], hidden_size=config["hidden_size"], output_size=config["output_size"], num_layers=config["num_layers"], dropout=config["dropout"]).to(config["device"])
+        # Parámetros base del modelo
+        model_kwargs = {
+            "input_size": config["input_size"],
+            "hidden_size": config["hidden_size"],
+            "output_size": config["output_size"],
+            "num_layers": config["num_layers"],
+            "dropout": config["dropout"]
+        }
+        
+        # Agregar parámetros opcionales de capas exclusivas si están presentes
+        if "use_exclusive" in config:
+            model_kwargs["use_exclusive"] = config["use_exclusive"]
+        if "exclusive_hidden_size" in config:
+            model_kwargs["exclusive_hidden_size"] = config["exclusive_hidden_size"]
+        if "num_exclusive_layers" in config:
+            model_kwargs["num_exclusive_layers"] = config["num_exclusive_layers"]
+        
+        self.model = config["model_class"](**model_kwargs).to(config["device"])
         initialize_weights(self.model) 
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=config["lr"])

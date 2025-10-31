@@ -193,6 +193,18 @@ class Tuner:
             if trial_config["num_layers"] == 1:
                 trial_config["dropout"] = 0.0  # Avoid PyTorch warning for single-layer RNNs
         
+        # Manejar parámetros de capas exclusivas para modelos dual
+        if "num_exclusive_layers" in trial_config:
+            if trial_config["num_exclusive_layers"] == 0:
+                # Desactivar capas exclusivas
+                trial_config["use_exclusive"] = False
+                trial_config.pop("num_exclusive_layers", None)
+                trial_config.pop("exclusive_hidden_size", None)
+            else:
+                # Activar capas exclusivas
+                trial_config["use_exclusive"] = True
+                # num_exclusive_layers y exclusive_hidden_size se pasan tal cual si existen
+        
         # Crea directorio para esta prueba
         model_dir = os.path.join(fold_dir, f"trial_{trial.number}")
         os.makedirs(model_dir, exist_ok=True)
@@ -313,7 +325,7 @@ class Tuner:
         
         # Guardar en formato JSON
         with open(f"{experiment_dir}/final_results.json", "w") as f:
-            json.dump(json_results, f, indent=4, default=str)
+            json.dump(json_results, f, default=str)
     
     def _print_cv_summary(self, results):
         """Imprime un resumen de los resultados de validación cruzada usando el evaluador."""
