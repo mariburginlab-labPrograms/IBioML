@@ -290,6 +290,9 @@ class Tuner:
             "best_trial_number": study.best_trial.number,
             "best_validation_r2_score": fold_results["val_r2"],
             "test_r2_score": fold_results["r2_scores"][0],
+            "train_trials": fold_results["train_trials"],
+            "val_trials": fold_results["val_trials"],
+            "test_trials": fold_results["test_trials"]
         }
         
         if len(fold_results["r2_scores"]) > 1:
