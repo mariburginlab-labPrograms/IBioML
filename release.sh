@@ -11,6 +11,14 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+# Verificar que estamos en la rama main
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+  echo "❌ Solo se puede hacer release desde la rama 'main'. Estás en '$CURRENT_BRANCH'."
+  exit 1
+fi
+echo "✅ En rama main. Continuando..."
+
 echo "📦 Actualizando a la versión $VERSION"
 
 # Actualiza la versión en pyproject.toml o setup.py
