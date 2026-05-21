@@ -189,3 +189,6 @@ docs/api/_autosummary/
 
 # Temporary documentation files
 *.tmp.md
+
+# Mac OS
+.DS_Store
