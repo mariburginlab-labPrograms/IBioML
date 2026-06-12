@@ -177,12 +177,14 @@ cython_debug/
 # new example results
 examples/results/
 
-# Data files (pickle, JSON, CSV, PyTorch models)
+# Data files (pickle, JSON, CSV, PyTorch models, MATLAB, SVG)
 *.pkl
 *.pickle
 *.json
 *.csv
 *.pt
+*.mat
+*.svg
 
 # MkDocs build output
 site/
