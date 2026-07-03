@@ -168,7 +168,19 @@ def save_data(X, y, trial_markers=None, file_path=None):
             pickle.dump((X, y), f)
         #print("Datos guardados correctamente en", file_path)
 
-def preprocess_data(file_path, file_name_to_save, bins_before, bins_after, bins_current, binLength, threshDPrime, firingMinimo, thVel, thDur, data_dir):
+def preprocess_data(
+    file_path,
+    file_name_to_save,
+    bins_before,
+    bins_after,
+    bins_current,
+    threshDPrime,
+    firingMinimo,
+    binLength=200,
+    thVel=1,
+    thDur=4,
+    data_dir="data",
+):
     
     # Cargamos los datos
     # mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned = load_data(file_path)
