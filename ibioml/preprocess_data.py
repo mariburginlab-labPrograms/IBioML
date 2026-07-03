@@ -16,12 +16,12 @@ def load_data(file_path):
     mat_contents = io.loadmat(file_path)
     neural_data = mat_contents['neuronActivity'].copy()
     rewCtxt = mat_contents['rewCtxt'].copy()
-    trialFinalBin = np.ravel(mat_contents['trialFinalBin'].copy())
+    trialFinalBin = np.ravel(mat_contents['trialFinalBin'].copy()) - 1 # indices de matlab a python
     dPrime = np.ravel(mat_contents['dPrime'].copy())
     criterion = np.ravel(mat_contents['criterion'].copy())
     rewCtxt = rewCtxt.squeeze()
-    print("Shape del neural data:", neural_data.shape)
-    print("Shape del neural data en Rewarded Context:", neural_data[rewCtxt==1,:].shape)
+    # print("Shape del neural data:", neural_data.shape)
+    # print("Shape del neural data en Rewarded Context:", neural_data[rewCtxt==1,:].shape)
 
     # variables a decodificar
     pos_binned = mat_contents['position'].copy()
@@ -60,9 +60,33 @@ def get_idx_by_high_trial_duration(trialDurationInBins, trialFinalBin):
         else:
             startInd=trialFinalBin[trial-1]+1
         endInd=trialFinalBin[trial]
-        indices_to_remove_trialDuration.extend(range(startInd,endInd))
+        indices_to_remove_trialDuration.extend(range(startInd,endInd+1))
 
     return np.array(indices_to_remove_trialDuration)
+
+def periods_immobility(vels_binned, thVel, binLength, thDur, trialFinalBin, bins_before, bins_after):
+    
+    candidates = np.array(np.ravel(vels_binned) <thVel, dtype=int)
+    candidates[-1] = 0 
+    jumps = np.append(candidates[0], np.diff(candidates))
+    eventsOn = np.where(jumps==1)[0]
+    eventsOff = np.where(jumps==-1)[0]
+    durations=(eventsOff-eventsOn)*binLength/1000
+    included = np.where(durations>thDur)[0]
+    immobility=[]
+    for i in included:
+        immobility.extend(range(eventsOn[i]-bins_after, eventsOff[i]+bins_before+1))
+
+    trial_transitions = []
+    for trial_idx in range(len(trialFinalBin)):
+        start_idx = trialFinalBin[trial_idx] + 1 - bins_before 
+        if trial_idx == len(trialFinalBin)-1:
+            end_idx = trialFinalBin[-1] 
+        else:
+            end_idx = trialFinalBin[trial_idx] + 1 + int(400/binLength) + bins_after # le sumo 400ms adicional para cubrir el principio del siguiente trial, que también suele ser inestable
+        trial_transitions.extend(range(start_idx, end_idx+1))
+
+    return immobility, trial_transitions
 
 def get_idx_by_low_performance(dPrime, trialFinalBin, threshold):
     """
@@ -71,8 +95,8 @@ def get_idx_by_low_performance(dPrime, trialFinalBin, threshold):
     low_performance_trials_indices = np.where((dPrime <= threshold) | (np.isnan(dPrime)))[0]
 
     # Mostrar los índices de los trials
-    print("Trials con dPrime menor o igual a 2.8:", low_performance_trials_indices)
-    print("Cantidad de trials:", len(low_performance_trials_indices))
+    print("Trials con dPrime que no cumplen el criterio:", low_performance_trials_indices)
+    print("Cantidad de trials que no cumplen criterio dPrime:", len(low_performance_trials_indices))
 
     # Crear una lista para almacenar los índices de los time bins a eliminar
     indices_to_remove_low_performance = []
@@ -87,14 +111,49 @@ def get_idx_by_low_performance(dPrime, trialFinalBin, threshold):
 
     return np.array(indices_to_remove_low_performance)
 
-def clean_neurons_by_low_firing_rate(X, firingMinimo):
+def clean_neurons_by_low_firing_rate(neural_data, firingMinimo, binLength):
     """
     Eliminamos las neuronas con pocos spikes
     """
-    nd_sum = np.nansum(X[:,0,:], axis=0)
-    rmv_nrn_clean = np.where(nd_sum < firingMinimo)
-    X = np.delete(X, rmv_nrn_clean, 2)
-    return X
+    # nd_sum = np.nansum(X[:,0,:], axis=0)
+    # rmv_nrn_clean = np.where(nd_sum < firingMinimo)
+    # X = np.delete(X, rmv_nrn_clean, 2)
+
+    #nd_avg = np.nansum(neural_data, axis=0)/neural_data.shape[0] # promedio de spikes por neurona
+    nd_avg = np.nanmean(neural_data, axis=0)/(binLength/1000)
+    lowfiring_neurons = np.where(nd_avg < firingMinimo)
+    
+    #neural_data = np.delete(neural_data, lowfiring_neurons, 1)
+    #print(lowfiring_neurons[0].shape[0], "neuronas con firing rate menor a", firingMinimo, "spikes/bin")
+    
+    #return neural_data, lowfiring_neurons
+    return lowfiring_neurons
+
+def clean_unstable_neurons(neural_data,numBlocks=2, threshDrift=0.5):
+
+    # truncate so it's divisible by numBlocks
+    upTo = neural_data.shape[0] - (neural_data.shape[0] % numBlocks)
+    blockSize = upTo // numBlocks
+
+    # reshape container
+    reshape_neural_data = np.full((numBlocks, blockSize, neural_data.shape[1]), np.nan)
+
+    # fill blocks
+    for i in range(numBlocks):
+        reshape_neural_data[i, :, :] = neural_data[i * blockSize:(i + 1) * blockSize, :]
+
+    # mean across time within each block
+    meanBlockActivity = np.mean(reshape_neural_data, axis=1)  # shape: (numBlocks, neurons)
+
+    # drift index
+    driftIndex = np.abs(meanBlockActivity[0, :] - meanBlockActivity[1, :]) / \
+             (meanBlockActivity[0, :] + meanBlockActivity[1, :])
+
+    # sort
+    inds = np.argsort(driftIndex)  # ascending order
+    vals = driftIndex[inds]
+
+    return inds[vals > threshDrift]
 
 def save_data(X, y, trial_markers=None, file_path=None):
     """
@@ -103,53 +162,110 @@ def save_data(X, y, trial_markers=None, file_path=None):
     if trial_markers is not None:
         with open(file_path, 'wb') as f:
             pickle.dump((X, y, trial_markers), f)
-        print("Datos con marcadores de trial guardados en", file_path)
+        #print("Datos con marcadores de trial guardados en", file_path)
     else:
         with open(file_path, 'wb') as f:
             pickle.dump((X, y), f)
-        print("Datos guardados correctamente en", file_path)
+        #print("Datos guardados correctamente en", file_path)
 
-def preprocess_data(file_path, file_name_to_save, bins_before, bins_after, bins_current, threshDPrime, firingMinimo):
-    # Cargamos los datos
-    mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned = load_data(file_path)
-    trialFinalBin[-1] = neural_data.shape[0]-1 # el último trial no tiene un trialFinalBin, lo agregamos manualmente
+def preprocess_data(
+    file_path,
+    file_name_to_save,
+    bins_before,
+    bins_after,
+    bins_current,
+    threshDPrime,
+    firingMinimo,
+    binLength=200,
+    thVel=1,
+    thDur=4,
+    data_dir="data",
+):
     
-    # Agregamos el contexto a los datos
-    neural_data_with_ctxt = add_context_to_data(neural_data, rewCtxt)
+    # Cargamos los datos
+    # mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned = load_data(file_path)
+    # trialFinalBin[-1] = neural_data.shape[0]-1 # el último trial no tiene un trialFinalBin, lo agregamos manualmente
+    mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned = load_data(file_path)
+    
+    original_num_time_bins = neural_data.shape[0]
+
     
     # Datos a decodificar
     y = np.concatenate((pos_binned, vels_binned), axis=1)
-    
-    # Obtengo los spikes con historia
-    X = get_spikes_with_history(neural_data_with_ctxt,bins_before,bins_after,bins_current)
-    # esto lo realizo ahora para luego poder eliminar los spikes sin historia que quedan al principio y al final del tensor X, es decir, los nans que se generan en el proceso de obtener los spikes con historia en donde no hay historia
-    print("Shape del X:", X.shape)
-    
+           
     # Crear marcadores de trial antes de cualquier eliminación
     trial_markers = create_trial_markers(trialFinalBin, neural_data.shape[0])
     
-    # Obtenemos los índices de los trials con duración muy larga
-    trialDurationInBins = np.ravel(mat_contents['trialDurationInBins'].copy())
-    indices_to_remove_trialDuration = get_idx_by_high_trial_duration(trialDurationInBins, trialFinalBin)
-    print("Índices de los time bins a eliminar por larga duración:", indices_to_remove_trialDuration)
+    # # Obtenemos los índices de los trials con duración muy larga
+    # trialDurationInBins = np.ravel(mat_contents['trialDurationInBins'].copy())
+    # indices_to_remove_trialDuration = get_idx_by_high_trial_duration(trialDurationInBins, trialFinalBin)
+    # print("Índices de los time bins a eliminar por larga duración:", indices_to_remove_trialDuration)
     
     # CLEANING DE BOUNDARIES SIN HISTORY
-    # removemos los primeros bins y los ultimos porque no tienen historia (son los creados por get_spikes_with_history), boundaries
     first_indexes = np.arange(bins_before)
-    last_indexes = np.arange(X.shape[0]-bins_after,X.shape[0])
+    last_indexes = np.arange(original_num_time_bins-bins_after,original_num_time_bins)
     
-    indices_to_remove_temp = np.concatenate((first_indexes, indices_to_remove_trialDuration, last_indexes))
-    print("Indices a remover por ahora, sin historia y por inactividad:", indices_to_remove_temp)
+    # indices_to_remove_temp = np.concatenate((first_indexes, indices_to_remove_trialDuration, last_indexes))
+    # print("Indices a remover por ahora, sin historia y por inactividad:", indices_to_remove_temp)
     
+    # candidates = np.array(np.ravel(vels_binned) <thVel, dtype=int)
+    # candidates[-1] = 0 
+    # jumps = np.append(candidates[0], np.diff(candidates))
+    # eventsOn = np.where(jumps==1)[0]
+    # eventsOff = np.where(jumps==-1)[0]
+    # durations=(eventsOff-eventsOn)*binLength/1000
+    # included = np.where(durations>thDur)[0]
+    # immobility=[]
+    # for i in included:
+    #     immobility.extend(range(eventsOn[i]-bins_after, eventsOff[i]+bins_before+1))
+
+    # trial_transitions = []
+    # for trial_idx in range(len(trialFinalBin)):
+    #     start_idx = trialFinalBin[trial_idx] + 1 - bins_before 
+    #     if trial_idx == len(trialFinalBin)-1:
+    #         end_idx = trialFinalBin[-1] 
+    #     else:
+    #         end_idx = trialFinalBin[trial_idx] +1 + bins_after
+    #     trial_transitions.extend(range(start_idx, end_idx+1))
+
+    immobility,trial_transitions = periods_immobility(vels_binned, thVel, binLength, thDur, trialFinalBin, bins_before, bins_after)
+
+    indices_to_remove_immob = np.concatenate((first_indexes, immobility, trial_transitions, last_indexes))
+    print(f"Cantidad de time bins a remover por ahora por inmovilidad y transiciones de trials: {len(indices_to_remove_immob)}")
+
     # Obtenemos los índices de los trials con bajo rendimiento
     indices_to_remove_low_performance = get_idx_by_low_performance(dPrime, trialFinalBin, threshDPrime)
-    print("Índices de los time bins a eliminar por bajo rendimiento:", indices_to_remove_low_performance)
-    
-    # Agregar los índices de bajo rendimiento a los índices a eliminar
-    rmv_time=np.where(np.isnan(y[:,0])) # indices en los que la posicion es NaN
-    indices_to_remove = np.union1d(rmv_time,np.union1d(indices_to_remove_temp, indices_to_remove_low_performance))
+    indices_to_remove_low_performance = np.array(indices_to_remove_low_performance, dtype=int)
+    print(f"Cantidad de time bins a eliminar por no cumplir criterio dPrime: {len(indices_to_remove_low_performance)}")
 
-    print("Índices totales de los time bins a eliminar:", indices_to_remove)
+    # *** CORRECCIÓN DEL BUG: Manejar correctamente los tipos de datos ***
+    rmv_time = np.where(np.isnan(y[:,0]))[0]  # Extraer solo la primera dimensión de la tupla
+    
+    # 🔧 CORRECCIÓN CRÍTICA: Convertir todos los índices a enteros
+    rmv_time = np.array(rmv_time, dtype=int)
+    indices_to_remove_immob = np.array(indices_to_remove_immob, dtype=int)
+    indices_to_remove_low_performance = np.array(indices_to_remove_low_performance, dtype=int)
+
+    # Combinar todos los índices y asegurar que el resultado sea entero
+    indices_to_remove = np.union1d(rmv_time, np.union1d(indices_to_remove_immob, indices_to_remove_low_performance)).astype(int)
+   
+    print(f"   Total de bins a eliminar: {len(indices_to_remove)}")
+    #print(f"   Tipo de datos de indices_to_remove: {indices_to_remove.dtype}")
+    
+    # # Agregar los índices de bajo rendimiento a los índices a eliminar
+    # rmv_time=np.where(np.isnan(y[:,0])) # indices en los que la posicion es NaN
+    # indices_to_remove = np.union1d(rmv_time,np.union1d(indices_to_remove_temp, indices_to_remove_low_performance))
+
+    #print("Índices totales de los time bins a eliminar:", indices_to_remove)
+    
+    
+    # Agregamos el contexto a los datos
+    neural_data_with_ctxt = add_context_to_data(neural_data, rewCtxt)
+
+    # Obtengo los spikes con historia
+    X = get_spikes_with_history(neural_data_with_ctxt,bins_before,bins_after,bins_current)
+    #print("Shape del X:", X.shape)
+    
     
     # Eliminamos los datos con bajo rendimiento y duración de trial
     X = np.delete(X, indices_to_remove, 0)
@@ -158,36 +274,87 @@ def preprocess_data(file_path, file_name_to_save, bins_before, bins_after, bins_
     # Actualizar los marcadores de trial eliminando los mismos índices
     trial_markers = np.delete(trial_markers, indices_to_remove, 0)
     
-    # Eliminamos las neuronas con pocos spikes
-    X = clean_neurons_by_low_firing_rate(X, firingMinimo)
-    print("Shape de X final:", X.shape)
-    
-    # Flatten X: Esto lo necesito para entrenar los no recurrentes
-    X_flat = X.reshape(X.shape[0], (X.shape[1] * X.shape[2]))
-    
-    # Guardamos los datos con marcadores de trial
-    save_data(X, y[:, 0].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_withCtxt_onlyPosition.pickle')
-    save_data(X_flat, y[:, 0].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_withCtxt_onlyPosition_flat.pickle')
-    save_data(X, y[:, 1].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_withCtxt_onlyVelocity.pickle')
-    save_data(X_flat, y[:, 1].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_withCtxt_onlyVelocity_flat.pickle')
-    save_data(X, y, trial_markers, 'data/'+file_name_to_save+'_withCtxt.pickle')
-    save_data(X_flat, y, trial_markers, 'data/'+file_name_to_save+'_withCtxt_flat.pickle')
-    
-    # Removemos las últimas dos columnas del tensor X para quedarnos solo con las neuronas como características
-    X_no_context = X[:, :, :-2]
-    print("Shape del X sin contexto:", X_no_context.shape)
-    
-    # Flatten X sin contexto
-    X_no_context_flat = X_no_context.reshape(X_no_context.shape[0], (X_no_context.shape[1] * X_no_context.shape[2]))
-    
-    # Guardamos los datos sin contexto
-    save_data(X_no_context, y[:, 0].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save + '_onlyPosition.pickle')
-    save_data(X_no_context_flat, y[:, 0].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save + '_onlyPosition_flat.pickle')
-    save_data(X_no_context, y[:, 1].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_onlyVelocity.pickle')
-    save_data(X_no_context_flat, y[:, 1].reshape(-1, 1), trial_markers, 'data/'+file_name_to_save+'_onlyVelocity_flat.pickle')
-    save_data(X_no_context, y, trial_markers, 'data/'+file_name_to_save + '.pickle')
-    save_data(X_no_context_flat, y, trial_markers, 'data/'+file_name_to_save + '_flat.pickle')
+    neural_data = np.delete(neural_data, indices_to_remove, 0) # Esto lo necesito para el filtrado de neuronas inestables y de bajo firing rate, que se hace después del filtrado de time bins
 
+    # Removemos neuronas inestables
+    unstableNeurons = clean_unstable_neurons(neural_data, numBlocks=2, threshDrift=0.5)
+    
+    # Eliminamos las neuronas con pocos spikes
+    lowfiring_neurons = clean_neurons_by_low_firing_rate(neural_data, firingMinimo, binLength)
+
+        
+    X=np.delete(X,np.union1d(lowfiring_neurons, unstableNeurons).astype(int),2)
+
+
+    print("Shape de X final (con contexto):", X.shape)
+    
+    # Solo continuar si tenemos datos
+    if X.shape[0] > 0 and X.shape[2] > 0:
+        # Flatten X: Esto lo necesito para entrenar los no recurrentes
+        X_flat = X.reshape(X.shape[0], (X.shape[1] * X.shape[2]))
+        
+        # Guardamos los datos con marcadores de trial
+        save_data(X, y[:, 0].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt_onlyPosition.pickle')
+        save_data(X_flat, y[:, 0].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt_onlyPosition_flat.pickle')
+        save_data(X, y[:, 1].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt_onlyVelocity.pickle')
+        save_data(X_flat, y[:, 1].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt_onlyVelocity_flat.pickle')
+        save_data(X, y, trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt.pickle')
+        save_data(X_flat, y, trial_markers, f'{data_dir}/{file_name_to_save}_withCtxt_flat.pickle')
+        
+        # Removemos las últimas dos columnas del tensor X para quedarnos solo con las neuronas como características
+        X_no_context = X[:, :, :-2]
+       # print(f"   Shape del X sin contexto: {X_no_context.shape}")
+        
+        # Flatten X sin contexto
+        X_no_context_flat = X_no_context.reshape(X_no_context.shape[0], (X_no_context.shape[1] * X_no_context.shape[2]))
+        
+        # Guardamos los datos sin contexto
+        save_data(X_no_context, y[:, 0].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_onlyPosition.pickle')
+        save_data(X_no_context_flat, y[:, 0].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_onlyPosition_flat.pickle')
+        save_data(X_no_context, y[:, 1].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_onlyVelocity.pickle')
+        save_data(X_no_context_flat, y[:, 1].reshape(-1, 1), trial_markers, f'{data_dir}/{file_name_to_save}_onlyVelocity_flat.pickle')
+        save_data(X_no_context, y, trial_markers, f'{data_dir}/{file_name_to_save}.pickle')
+        save_data(X_no_context_flat, y, trial_markers, f'{data_dir}/{file_name_to_save}_flat.pickle')
+        
+        
+        resultsPreprocess = 100*np.array([len(indices_to_remove_immob), len(indices_to_remove_low_performance), len(rmv_time), len(indices_to_remove)])/original_num_time_bins
+        resultsPreprocess = np.round(resultsPreprocess, 2)
+        resultsPreprocess = list(resultsPreprocess)
+        #resultsPreprocess.extend([X.shape[0], lowfiring_neurons[0].shape[0], unstableNeurons.shape[0], X.shape[2]])
+        resultsPreprocess.extend([X.shape[0], lowfiring_neurons[0].shape[0], np.setdiff1d(unstableNeurons,lowfiring_neurons[0]).shape[0], X.shape[2]-2])
+        
+        dictResultsPreprocess = {
+            'success': True,
+            'proportion_immobility': resultsPreprocess[0],
+            'proportion_low_performance': resultsPreprocess[1],
+            'proportion_nan_position': resultsPreprocess[2],
+            'proportion_total_removed': resultsPreprocess[3],
+            'time_bins_kept': resultsPreprocess[4],
+            'low_firing_neurons': resultsPreprocess[5],
+            'unstable_neurons': resultsPreprocess[6],
+            'neurons_Kept': resultsPreprocess[7]
+        }
+
+        print(f"   ✅ Preprocesamiento completado exitosamente!")
+ 
+
+        return dictResultsPreprocess
+    else:
+        resultsPreprocess =[np.nan, np.nan, np.nan, np.nan, np.nan , np.nan , np.nan , np.nan]
+        dictResultsPreprocess = {
+            'success': False,
+            'proportion_immobility': resultsPreprocess[0],
+            'proportion_low_performance': resultsPreprocess[1],
+            'proportion_nan_position': resultsPreprocess[2],
+            'proportion_total_removed': resultsPreprocess[3],
+            'time_bins_kept': resultsPreprocess[4],
+            'low_firing_neurons': resultsPreprocess[5],
+            'unstable_neurons': resultsPreprocess[6],
+            'neurons_Kept': resultsPreprocess[7]
+        }
+
+        print(f"   ⚠️  ADVERTENCIA: No quedan datos después del filtrado!")
+        return dictResultsPreprocess
     
 #%%
 # GRAFICAR DURACION DE LOS TRIALS
