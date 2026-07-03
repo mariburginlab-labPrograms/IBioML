@@ -5,7 +5,14 @@ Este paquete proporciona herramientas especializadas para el análisis de datos
 neuronales y la implementación de experimentos de neurodecodificación.
 """
 
-__version__ = "0.1.2"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("ibioml")
+except PackageNotFoundError:
+    # Package is not installed (e.g. running from source without pip install).
+    __version__ = "unknown"
+
 __author__ = "Juan Ignacio Ponce"
 __email__ = "jiponce@ibioba-mpsp-conicet.gov.ar"
 
