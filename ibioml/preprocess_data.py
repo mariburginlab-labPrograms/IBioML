@@ -16,10 +16,12 @@ def load_data(file_path):
     mat_contents = io.loadmat(file_path)
     neural_data = mat_contents['neuronActivity'].copy()
     rewCtxt = mat_contents['rewCtxt'].copy()
+    rewOdor = mat_contents['rewOdor'].copy()
     trialFinalBin = np.ravel(mat_contents['trialFinalBin'].copy())
     dPrime = np.ravel(mat_contents['dPrime'].copy())
     criterion = np.ravel(mat_contents['criterion'].copy())
     rewCtxt = rewCtxt.squeeze()
+    rewOdor = rewOdor.squeeze()
     print("Shape del neural data:", neural_data.shape)
     print("Shape del neural data en Rewarded Context:", neural_data[rewCtxt==1,:].shape)
 
@@ -27,7 +29,7 @@ def load_data(file_path):
     pos_binned = mat_contents['position'].copy()
     vels_binned = mat_contents['velocity'].copy()
 
-    return mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned
+    return mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewOdor, pos_binned, vels_binned
 
 def add_context_to_data(neural_data, rewCtxt):
     """
@@ -111,7 +113,7 @@ def save_data(X, y, trial_markers=None, file_path=None):
 
 def preprocess_data(file_path, file_name_to_save, bins_before, bins_after, bins_current, threshDPrime, firingMinimo):
     # Cargamos los datos
-    mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewCtxt, pos_binned, vels_binned = load_data(file_path)
+    mat_contents, neural_data, rewCtxt, trialFinalBin, dPrime, criterion, rewOdor, pos_binned, vels_binned = load_data(file_path)
     trialFinalBin[-1] = neural_data.shape[0]-1 # el último trial no tiene un trialFinalBin, lo agregamos manualmente
     
     # Agregamos el contexto a los datos
