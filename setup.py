@@ -43,7 +43,7 @@ setup(
     description="ML toolkit for neuro decoding experiments at IBIoBA",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/tuusuario/IBioML",
+    url="https://github.com/mariburginlab-labPrograms/IBioML",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Science/Research",
