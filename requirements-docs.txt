@@ -3,3 +3,10 @@ mkdocstrings[python]>=0.20.0
 pymdown-extensions>=9.0
 mkdocs-jupyter>=0.21.0
 mike>=1.1.0
+optuna
+seaborn
+scikit-learn
+matplotlib
+scipy
+numpy
+torch
