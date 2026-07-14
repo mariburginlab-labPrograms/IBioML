@@ -66,6 +66,39 @@ def get_idx_by_high_trial_duration(trialDurationInBins, trialFinalBin):
 
     return np.array(indices_to_remove_trialDuration)
 
+def get_idx_by_out_of_corridor_trials(pos_binned, trialFinalBin, thPosition=1500):
+    """
+    Índices de los time bins de trials cuya posición pico supera `thPosition`
+    (en grados de encoder). Detecta artefactos de segmentación / inicio de
+    sesión: el trial no termina y la posición rampa muy por fuera del corredor
+    físico (p. ej. el primer trial de los datasets DG-naive, que llega a
+    ~26500° cuando el corredor válido no pasa de ~1200°).
+
+    Se elimina el trial COMPLETO. Es distinto —y complementario— al filtro de
+    inmovilidad: durante estos trials el animal corre, así que sus bins en
+    movimiento (que cargan las posiciones absurdas) sobreviven al filtro de
+    inmovilidad y arruinan la estandarización de la posición.
+    """
+    position = np.ravel(pos_binned)
+    trialFinalBin = np.ravel(trialFinalBin).astype(int)
+
+    trialsOutOfCorridor = []
+    indices_to_remove_out_of_corridor = []
+    for trial in range(len(trialFinalBin)):
+        startInd = 0 if trial == 0 else trialFinalBin[trial-1] + 1
+        endInd = trialFinalBin[trial]
+        trial_pos = position[startInd:endInd+1]
+        if trial_pos.size == 0 or np.all(np.isnan(trial_pos)):
+            continue
+        if np.nanmax(trial_pos) > thPosition:
+            trialsOutOfCorridor.append(trial)
+            indices_to_remove_out_of_corridor.extend(range(startInd, endInd+1))
+
+    if trialsOutOfCorridor:
+        print('El trial ', trialsOutOfCorridor, 'sale del corredor (posición pico >', thPosition, 'grados)')
+
+    return np.array(indices_to_remove_out_of_corridor, dtype=int)
+
 def periods_immobility(vels_binned, thVel, binLength, thDur, trialFinalBin, bins_before, bins_after):
     
     candidates = np.array(np.ravel(vels_binned) <thVel, dtype=int)
@@ -181,6 +214,7 @@ def preprocess_data(
     binLength=200,
     thVel=1,
     thDur=4,
+    thPosition=1500,
     data_dir="data",
 ):
     
@@ -238,16 +272,28 @@ def preprocess_data(
     indices_to_remove_low_performance = np.array(indices_to_remove_low_performance, dtype=int)
     print(f"Cantidad de time bins a eliminar por no cumplir criterio dPrime: {len(indices_to_remove_low_performance)}")
 
+    # Obtenemos los índices de los trials que salen del corredor físico
+    # (artefacto de segmentación / inicio de sesión: posición pico > thPosition)
+    indices_to_remove_out_of_corridor = get_idx_by_out_of_corridor_trials(pos_binned, trialFinalBin, thPosition)
+    indices_to_remove_out_of_corridor = np.array(indices_to_remove_out_of_corridor, dtype=int)
+    print(f"Cantidad de time bins a eliminar por trials fuera del corredor: {len(indices_to_remove_out_of_corridor)}")
+
     # *** CORRECCIÓN DEL BUG: Manejar correctamente los tipos de datos ***
     rmv_time = np.where(np.isnan(y[:,0]))[0]  # Extraer solo la primera dimensión de la tupla
-    
+
     # 🔧 CORRECCIÓN CRÍTICA: Convertir todos los índices a enteros
     rmv_time = np.array(rmv_time, dtype=int)
     indices_to_remove_immob = np.array(indices_to_remove_immob, dtype=int)
     indices_to_remove_low_performance = np.array(indices_to_remove_low_performance, dtype=int)
 
     # Combinar todos los índices y asegurar que el resultado sea entero
-    indices_to_remove = np.union1d(rmv_time, np.union1d(indices_to_remove_immob, indices_to_remove_low_performance)).astype(int)
+    indices_to_remove = np.union1d(
+        rmv_time,
+        np.union1d(
+            indices_to_remove_immob,
+            np.union1d(indices_to_remove_low_performance, indices_to_remove_out_of_corridor),
+        ),
+    ).astype(int)
    
     print(f"   Total de bins a eliminar: {len(indices_to_remove)}")
     #print(f"   Tipo de datos de indices_to_remove: {indices_to_remove.dtype}")
